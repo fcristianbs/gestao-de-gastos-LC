@@ -151,10 +151,20 @@ def processar_gasto():
         if webhook_url:
             try:
                 sheet_resp = enviar_para_google_sheets(dados_estruturados, webhook_url)
-                if sheet_resp.status_code in (200, 302):
-                    planilha_status = "salvo na planilha"
-                else:
-                    planilha_status = f"erro ao salvar ({sheet_resp.status_code})"
+                try:
+                    sheet_data = sheet_resp.json()
+                    if sheet_data.get("sucesso"):
+                        planilha_status = "salvo na planilha"
+                    else:
+                        planilha_status = f"erro no script: {sheet_data.get('erro', 'desconhecido')}"
+                except Exception:
+                    # Se não for JSON, o Google Apps Script gerou uma página HTML de erro
+                    if "ReferenceError" in sheet_resp.text:
+                        planilha_status = "erro de sintaxe no código do Apps Script"
+                    elif "<!DOCTYPE html>" in sheet_resp.text:
+                        planilha_status = "permissão negada ou erro no Apps Script"
+                    else:
+                        planilha_status = f"erro ({sheet_resp.status_code})"
             except Exception as e:
                 planilha_status = f"erro na conexão com sheets: {str(e)}"
 
