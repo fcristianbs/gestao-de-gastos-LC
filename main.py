@@ -59,8 +59,21 @@ Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adic
 Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
 """
 
-    modelo = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+    # Lista de modelos em ordem de prioridade para fallback automático contra erro 503 / sobrecarga
+    modelo_configurado = os.getenv("GEMINI_MODEL", "").strip()
+    candidatos_modelos = [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-flash-latest",
+        "gemini-pro-latest"
+    ]
+    if modelo_configurado and modelo_configurado not in candidatos_modelos:
+        candidatos_modelos.insert(0, modelo_configurado)
+    elif modelo_configurado:
+        # Move o configurado para o início da lista
+        candidatos_modelos.remove(modelo_configurado)
+        candidatos_modelos.insert(0, modelo_configurado)
+
     payload = {
         "contents": [
             {
@@ -72,23 +85,35 @@ Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 1
         }
     }
 
-    resp = requests.post(url, json=payload, timeout=15)
-    
-    # Se o modelo configurado falhar, tenta gemini-flash-latest como fallback rápido
-    if resp.status_code == 404:
-        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
-        resp = requests.post(url_fallback, json=payload, timeout=15)
+    erros_acumulados = []
 
-    if resp.status_code != 200:
-        raise Exception(f"Erro na API do Gemini ({resp.status_code}): {resp.text}")
+    for mod in candidatos_modelos:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key}"
+        try:
+            print(f"[Gemini] Tentando processar com o modelo: {mod}...")
+            resp = requests.post(url, json=payload, timeout=12)
 
-    res_json = resp.json()
-    candidates = res_json.get("candidates", [])
-    if not candidates:
-        raise Exception("Nenhuma resposta gerada pelo Gemini.")
+            if resp.status_code == 200:
+                res_json = resp.json()
+                candidates = res_json.get("candidates", [])
+                if candidates:
+                    raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                    print(f"[Gemini] Sucesso com o modelo: {mod}")
+                    return json.loads(raw_text)
+                else:
+                    erros_acumulados.append(f"{mod}: Nenhuma resposta gerada")
+            else:
+                msg_erro = f"{mod} (Status {resp.status_code}): {resp.text[:120]}"
+                print(f"[Gemini] Falha no modelo {mod}: {resp.status_code}. Tentando próximo modelo...")
+                erros_acumulados.append(msg_erro)
 
-    raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
-    return json.loads(raw_text)
+        except requests.exceptions.RequestException as req_err:
+            msg_erro = f"{mod} (Timeout/Rede): {str(req_err)}"
+            print(f"[Gemini] Exceção no modelo {mod}. Tentando próximo modelo...")
+            erros_acumulados.append(msg_erro)
+
+    # Se todos falharem
+    raise Exception(f"Todos os modelos do Gemini falharam: {'; '.join(erros_acumulados)}")
 
 def enviar_para_google_sheets(dados_gasto, webhook_url):
     """
