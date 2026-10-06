@@ -59,7 +59,8 @@ Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adic
 Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
 """
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    modelo = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
     payload = {
         "contents": [
             {
@@ -71,12 +72,12 @@ Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 1
         }
     }
 
-    resp = requests.post(url, json=payload, timeout=20)
+    resp = requests.post(url, json=payload, timeout=15)
     
-    # Se gemini-1.5-flash retornar 404 por atualização de modelo, tenta gemini-2.5-flash
+    # Se o modelo configurado falhar, tenta gemini-flash-latest como fallback rápido
     if resp.status_code == 404:
-        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        resp = requests.post(url_fallback, json=payload, timeout=20)
+        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
+        resp = requests.post(url_fallback, json=payload, timeout=15)
 
     if resp.status_code != 200:
         raise Exception(f"Erro na API do Gemini ({resp.status_code}): {resp.text}")
