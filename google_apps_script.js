@@ -1,17 +1,12 @@
 /**
  * Google Apps Script - Webhook para Registro de Gastos Financeiros
  * 
- * Instruções de instalação:
+ * Instruções de atualização:
  * 1. Abra sua planilha do Google Sheets.
- * 2. Clique no menu superior: "Extensões" > "Apps Script".
- * 3. Apague o código que estiver lá e cole todo este arquivo.
- * 4. Clique em "Implantar" (botão azul no canto superior direito) > "Nova implantação".
- * 5. Clique no ícone de engrenagem ao lado de "Tipo" e selecione "App da Web".
- * 6. Preencha:
- *    - Descrição: "Webhook Gastos"
- *    - Executar como: "Eu (seu_email@...)"
- *    - Quem tem acesso: "Qualquer pessoa" (MUITO IMPORTANTE!)
- * 7. Clique em "Implantar", conceda as permissões do Google e copie a "URL do app da web".
+ * 2. Clique em "Extensões" > "Apps Script".
+ * 3. Cole este código atualizado.
+ * 4. Clique em "Implantar" > "Gerenciar implantações".
+ * 5. Clique no ícone de lápis (Editar) > Versão: "Nova versão" > "Implantar".
  */
 
 function doPost(e) {
@@ -22,16 +17,14 @@ function doPost(e) {
     var contents = e.postData.contents;
     var data = JSON.parse(contents);
 
-    // Seleciona a primeira aba ou uma aba específica chamada "Gastos"
+    // Seleciona a primeira aba ou a aba chamada "Gastos"
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName("Gastos");
-    
-    // Se a aba "Gastos" não existir, usa a aba ativa atual
     if (!sheet) {
       sheet = ss.getActiveSheet();
     }
 
-    // Se a planilha estiver vazia (sem cabeçalho), cria as colunas automaticamente
+    // Se a planilha estiver vazia, cria as colunas automaticamente (incluindo o Prompt original)
     if (sheet.getLastRow() === 0) {
       var header = [
         "Data",
@@ -39,24 +32,25 @@ function doPost(e) {
         "Categoria",
         "Valor (R$)",
         "Forma de Pagamento",
-        "Observação"
+        "Observação",
+        "Texto Original (Prompt)"
       ];
       sheet.appendRow(header);
       
-      // Estiliza o cabeçalho
       var headerRange = sheet.getRange(1, 1, 1, header.length);
       headerRange.setFontWeight("bold");
-      headerRange.setBackground("#374151");
+      headerRange.setBackground("#1E293B");
       headerRange.setFontColor("#FFFFFF");
     }
 
-    // Dados recebidos do Flask / Gemini
+    // Dados extraídos pela inteligência do Gemini
     var dataHora = data.data || Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy HH:mm:ss");
     var descricao = data.descricao || "Não informada";
     var categoria = data.categoria || "Geral";
     var valor = parseFloat(data.valor) || 0;
     var formaPagamento = data.forma_pagamento || "Outros";
     var observacao = data.observacao || "";
+    var promptOriginal = data.prompt_original || "";
 
     // Adiciona a linha na planilha
     sheet.appendRow([
@@ -65,7 +59,8 @@ function doPost(e) {
       categoria,
       valor,
       formaPagamento,
-      observacao
+      observacao,
+      promptOriginal
     ]);
 
     // Formata a coluna de Valor como moeda na nova linha
@@ -88,7 +83,6 @@ function doPost(e) {
   }
 }
 
-// Permite testar se o webhook está no ar abrindo a URL no navegador
 function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
     "status": "online",
