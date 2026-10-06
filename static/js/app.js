@@ -1,5 +1,5 @@
 // ==========================================================================
-// Aplicação de Transcrição de Voz (Web Speech API + Flask)
+// Transcritor de Voz com Web Speech API (Versão Corrigida e Blindada)
 // ==========================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusText = document.getElementById('statusText');
     const statusHint = document.getElementById('statusHint');
     const langSelect = document.getElementById('langSelect');
-    const continuousToggle = document.getElementById('continuousToggle');
 
     const transcriptBox = document.getElementById('transcriptBox');
     const charCount = document.getElementById('charCount');
@@ -25,12 +24,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Estado interno
     let isListening = false;
-    let shouldStayListening = false;
-    let baseTranscript = '';    // Texto acumulado antes da sessão atual
-    let lastFullFinal = '';     // Último texto final consolidado
+    let baseText = '';          // Texto existente na caixa antes da fala atual
+    let sessionFinalText = '';  // Texto definitivo reconhecido durante esta sessão
     let recognition = null;
 
-    // 1. Checagem de compatibilidade da Web Speech API
+    // 1. Verificação de Suporte
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
@@ -43,156 +41,140 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    // 2. Inicialização do SpeechRecognition
-    function initRecognition() {
-        recognition = new SpeechRecognition();
-        recognition.continuous = continuousToggle.checked;
-        recognition.interimResults = true;
-        recognition.lang = langSelect.value;
+    // 2. Criação do Reconhecedor
+    function createRecognition() {
+        const rec = new SpeechRecognition();
+        rec.continuous = false; // False garante que o Chrome não entre em loop de buffer
+        rec.interimResults = true;
+        rec.lang = langSelect.value;
+        rec.maxAlternatives = 1;
 
-        recognition.onstart = () => {
+        rec.onstart = () => {
             isListening = true;
+            sessionFinalText = '';
             micCard.classList.add('listening');
             micIcon.classList.add('icon-hidden');
             micStopIcon.classList.remove('icon-hidden');
             statusText.textContent = "Ouvindo você...";
-            statusHint.textContent = "Fale no microfone para transcrever...";
+            statusHint.textContent = "Fale agora no microfone...";
         };
 
-        recognition.onresult = (event) => {
-            let sessionFinal = '';
-            let sessionInterim = '';
+        rec.onresult = (event) => {
+            let currentFinal = '';
+            let currentInterim = '';
 
-            // Itera por todos os resultados da sessão atual
             for (let i = 0; i < event.results.length; i++) {
-                const result = event.results[i];
-                const text = result[0].transcript;
-
-                if (result.isFinal) {
-                    sessionFinal += text;
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    currentFinal += (currentFinal ? ' ' : '') + transcript.trim();
                 } else {
-                    sessionInterim += text;
+                    currentInterim += (currentInterim ? ' ' : '') + transcript.trim();
                 }
             }
 
-            // Concatena o texto base prévio com o que foi finalizado nesta sessão
-            let fullFinal = baseTranscript;
-            const trimmedFinal = sessionFinal.trim();
-            if (trimmedFinal) {
-                fullFinal = (fullFinal ? fullFinal + ' ' : '') + trimmedFinal;
+            if (currentFinal) {
+                sessionFinalText = currentFinal;
             }
 
-            renderTranscript(fullFinal, sessionInterim.trim());
+            // Monta o texto completo sem duplicação
+            const consolidated = combineTexts(baseText, sessionFinalText);
+            renderBox(consolidated, currentInterim);
         };
 
-        recognition.onerror = (event) => {
-            console.warn("Aviso no reconhecimento de voz:", event.error);
+        rec.onerror = (event) => {
+            console.warn("Aviso SpeechRecognition:", event.error);
             if (event.error === 'not-allowed') {
                 showToast("Permissão de microfone negada no navegador.", "danger");
-                stopRecognition();
-            } else if (event.error === 'no-speech') {
-                // Silêncio temporário detectado, não interrompe
-            } else {
+            } else if (event.error !== 'no-speech') {
                 showToast(`Status: ${event.error}`, "danger");
             }
+            stopListening();
         };
 
-        recognition.onend = () => {
-            // Se o usuário deseja manter ouvindo continuamente e não clicou para pausar
-            if (shouldStayListening && continuousToggle.checked) {
-                baseTranscript = lastFullFinal; // consolida o texto da sessão anterior
-                try {
-                    recognition.start();
-                    return;
-                } catch (e) {
-                    console.log("Reiniciando recognition...", e);
-                }
-            }
-            stopRecognitionUI();
+        rec.onend = () => {
+            stopListening();
         };
+
+        return rec;
     }
 
-    initRecognition();
+    // 3. Funções de Início e Parada
+    function startListening() {
+        if (isListening) return;
 
-    // 3. Funções de Início / Parada
-    function startRecognition() {
+        // Guarda o que já existe na caixa de texto
+        baseText = transcriptBox.innerText.trim();
+        sessionFinalText = '';
+
         try {
-            baseTranscript = transcriptBox.innerText.trim();
-            lastFullFinal = baseTranscript;
-            recognition.lang = langSelect.value;
-            recognition.continuous = continuousToggle.checked;
-            shouldStayListening = true;
+            recognition = createRecognition();
             recognition.start();
         } catch (err) {
-            console.error("Falha ao iniciar reconhecimento:", err);
+            console.error("Erro ao iniciar reconhecimento:", err);
+            stopListening();
         }
     }
 
-    function stopRecognition() {
-        shouldStayListening = false;
-        if (recognition) {
-            try {
-                recognition.stop();
-            } catch (err) {
-                console.error(err);
-            }
-        }
-        stopRecognitionUI();
-    }
-
-    function stopRecognitionUI() {
+    function stopListening() {
         isListening = false;
-        shouldStayListening = false;
-        baseTranscript = lastFullFinal;
         micCard.classList.remove('listening');
         micIcon.classList.remove('icon-hidden');
         micStopIcon.classList.add('icon-hidden');
         statusText.textContent = "Pronto para ouvir";
-        statusHint.textContent = "Clique no microfone para voltar a falar";
-        renderTranscript(lastFullFinal, '');
+        statusHint.textContent = "Clique no microfone para falar novamente";
+
+        // Consolida o texto final na caixa sem spans provisórios
+        const finalText = combineTexts(baseText, sessionFinalText);
+        baseText = finalText;
+        sessionFinalText = '';
+        renderBox(finalText, '');
+
+        if (recognition) {
+            try {
+                recognition.abort();
+            } catch (e) {}
+            recognition = null;
+        }
     }
 
-    // Alternar gravação ao clicar no botão
-    micBtn.addEventListener('click', () => {
-        if (isListening) {
-            stopRecognition();
-        } else {
-            startRecognition();
-        }
-    });
+    function combineTexts(first, second) {
+        const p1 = (first || '').trim();
+        const p2 = (second || '').trim();
+        if (p1 && p2) return `${p1} ${p2}`;
+        return p1 || p2;
+    }
 
-    // Mudança de idioma ou modo contínuo
-    langSelect.addEventListener('change', () => {
-        if (isListening) {
-            stopRecognition();
-            setTimeout(startRecognition, 300);
-        }
-    });
-
-    continuousToggle.addEventListener('change', () => {
-        if (recognition) {
-            recognition.continuous = continuousToggle.checked;
-        }
-    });
-
-    // 4. Renderização do texto no box sem duplicação
-    function renderTranscript(finalText, interimText) {
-        lastFullFinal = finalText;
-
+    function renderBox(finalText, interimText) {
         let html = escapeHtml(finalText);
         if (interimText) {
-            html += (html.length > 0 ? ' ' : '') + `<span class="interim-text">${escapeHtml(interimText)}</span>`;
+            const separator = finalText ? ' ' : '';
+            html += `${separator}<span class="interim-text">${escapeHtml(interimText)}</span>`;
         }
-
         transcriptBox.innerHTML = html;
         transcriptBox.scrollTop = transcriptBox.scrollHeight;
         updateCounters();
     }
 
-    // Se o usuário editar manualmente na caixa
+    // Clique no botão de microfone
+    micBtn.addEventListener('click', () => {
+        if (isListening) {
+            stopListening();
+        } else {
+            startListening();
+        }
+    });
+
+    // Idioma
+    langSelect.addEventListener('change', () => {
+        if (isListening) {
+            stopListening();
+        }
+    });
+
+    // Edição manual na caixa
     transcriptBox.addEventListener('input', () => {
-        baseTranscript = transcriptBox.innerText.trim();
-        lastFullFinal = baseTranscript;
+        baseText = transcriptBox.innerText.trim();
+        sessionFinalText = '';
         updateCounters();
     });
 
@@ -203,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
         charCount.textContent = `${chars} caracteres • ${words} palavras`;
     }
 
-    // 5. Ações (Copiar, Limpar, Salvar)
+    // 4. Ações: Copiar, Limpar, Salvar
     copyBtn.addEventListener('click', async () => {
         const text = transcriptBox.innerText.trim();
         if (!text) {
@@ -219,8 +201,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     clearBtn.addEventListener('click', () => {
-        baseTranscript = '';
-        lastFullFinal = '';
+        if (isListening) stopListening();
+        baseText = '';
+        sessionFinalText = '';
         transcriptBox.innerHTML = '';
         updateCounters();
         showToast("Caixa de texto limpa.", "success");
@@ -260,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 6. Histórico no Flask
+    // 5. Histórico no Flask
     async function carregarHistorico() {
         try {
             const res = await fetch('/api/transcricoes');
@@ -300,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 7. Notificações Toast
+    // 6. Toasts e Helpers
     let toastTimeout;
     function showToast(msg, type = "success") {
         clearTimeout(toastTimeout);
@@ -320,6 +303,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, "&#039;");
     }
 
-    // Carrega dados ao iniciar
+    // Início
     carregarHistorico();
 });

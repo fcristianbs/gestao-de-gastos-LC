@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2.0">
 </head>
 <body>
     <div class="ambient-glow"></div>
@@ -50,10 +50,10 @@
                     <span class="status-dot" id="statusDot"></span>
                     <span id="statusText">Pronto para ouvir</span>
                 </div>
-                <span class="hint" id="statusHint">Clique no microfone acima e comece a falar</span>
+                <span class="hint" id="statusHint">Clique no microfone acima e fale a sua frase</span>
             </div>
 
-            <!-- Opções rápidas -->
+            <!-- Idioma -->
             <div class="controls-bar">
                 <div class="control-group">
                     <label for="langSelect">Idioma:</label>
@@ -62,12 +62,6 @@
                         <option value="en-US">🇺🇸 Inglês (EUA)</option>
                         <option value="es-ES">🇪🇸 Espanhol</option>
                     </select>
-                </div>
-                <div class="control-group">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="continuousToggle" checked>
-                        <span>Manter ouvindo (Contínuo)</span>
-                    </label>
                 </div>
             </div>
         </section>
@@ -140,6 +134,6 @@
         <div id="toast" class="toast" role="alert" aria-live="polite"></div>
     </main>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=2.0"></script>
 </body>
 </html>

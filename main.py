@@ -10,6 +10,14 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "static")
 )
 
+# Desativa cache durante desenvolvimento e updates rápidos
+@app.after_request
+def add_header(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # Armazenamento em memória simples para os registros transcritos
 historico_transcricoes = []
 
