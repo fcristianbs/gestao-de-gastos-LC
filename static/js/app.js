@@ -1,5 +1,6 @@
 // ==========================================================================
 // Gestão de Gastos LC - Transcrição de Voz + Gemini + Google Sheets
+// Envio 100% Automático ao terminar de falar (Hands-Free)
 // ==========================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -33,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Estado interno
     let isListening = false;
+    let isProcessing = false;
     let baseText = '';          // Texto existente na caixa antes da fala atual
     let sessionFinalText = '';  // Texto definitivo reconhecido durante esta sessão
     let recognition = null;
@@ -53,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Criação do Reconhecedor
     function createRecognition() {
         const rec = new SpeechRecognition();
-        rec.continuous = false; // Garante isolamento sem loops de buffer
+        rec.continuous = false; // Garante que o fim da fala dispare onend suavemente
         rec.interimResults = true;
         rec.lang = langSelect.value;
         rec.maxAlternatives = 1;
@@ -65,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
             micIcon.classList.add('icon-hidden');
             micStopIcon.classList.remove('icon-hidden');
             statusText.textContent = "Ouvindo você...";
-            statusHint.textContent = "Diga o gasto (ex: Almoço 35 reais no Pix)...";
+            statusHint.textContent = "Diga o gasto. Ao silenciar, ele envia sozinho!";
         };
 
         rec.onresult = (event) => {
@@ -97,11 +99,12 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (event.error !== 'no-speech') {
                 showToast(`Status: ${event.error}`, "danger");
             }
-            stopListening();
+            stopListening(false);
         };
 
         rec.onend = () => {
-            stopListening();
+            // Quando a pessoa termina de falar (silêncio), para e envia automaticamente!
+            stopListening(true);
         };
 
         return rec;
@@ -109,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 3. Funções de Início e Parada do Microfone
     function startListening() {
-        if (isListening) return;
+        if (isListening || isProcessing) return;
 
         baseText = transcriptBox.innerText.trim();
         sessionFinalText = '';
@@ -119,11 +122,13 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.start();
         } catch (err) {
             console.error("Erro ao iniciar reconhecimento:", err);
-            stopListening();
+            stopListening(false);
         }
     }
 
-    function stopListening() {
+    function stopListening(autoSend = true) {
+        if (!isListening) return;
+
         isListening = false;
         micCard.classList.remove('listening');
         micIcon.classList.remove('icon-hidden');
@@ -141,6 +146,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 recognition.abort();
             } catch (e) {}
             recognition = null;
+        }
+
+        // Se terminou com texto capturado, envia AUTOMATICAMENTE para a planilha!
+        if (autoSend && finalText && finalText.length >= 3) {
+            statusText.textContent = "Enviando à planilha...";
+            statusHint.textContent = "Estruturando com Gemini e salvando...";
+            enviarGastoParaServidor(finalText);
         }
     }
 
@@ -165,14 +177,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Clique no microfone
     micBtn.addEventListener('click', () => {
         if (isListening) {
-            stopListening();
+            stopListening(true); // Se o usuário clicar para parar, também envia automaticamente
         } else {
             startListening();
         }
     });
 
     langSelect.addEventListener('change', () => {
-        if (isListening) stopListening();
+        if (isListening) stopListening(false);
     });
 
     transcriptBox.addEventListener('input', () => {
@@ -204,7 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     clearBtn.addEventListener('click', () => {
-        if (isListening) stopListening();
+        if (isListening) stopListening(false);
         baseText = '';
         sessionFinalText = '';
         transcriptBox.innerHTML = '';
@@ -212,18 +224,15 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast("Caixa limpa.", "success");
     });
 
-    // 5. Processar com Gemini e Enviar para o Google Sheets
-    processBtn.addEventListener('click', async () => {
-        const text = transcriptBox.innerText.trim();
-        if (!text) {
-            showToast("Fale ou digite um gasto antes de registrar!", "danger");
-            return;
-        }
+    // 5. Função de Envio (Automática ou por clique)
+    async function enviarGastoParaServidor(text) {
+        if (!text || isProcessing) return;
 
         try {
+            isProcessing = true;
             processBtn.disabled = true;
             processBtn.style.opacity = '0.7';
-            processBtnText.textContent = "Processando com IA...";
+            processBtnText.textContent = "Salvando com IA...";
 
             const response = await fetch('/api/processar-gasto', {
                 method: 'POST',
@@ -234,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (data.sucesso) {
-                showToast("Gasto estruturado pelo Gemini e enviado!", "success");
+                showToast("✓ Gasto salvo na planilha!", "success");
                 exibirResultadoGemini(data.dados, data.status_planilha);
                 carregarHistorico();
 
@@ -243,17 +252,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 sessionFinalText = '';
                 transcriptBox.innerHTML = '';
                 updateCounters();
+
+                statusText.textContent = "Gasto registrado!";
+                statusHint.textContent = "Clique no microfone para o próximo gasto";
             } else {
                 showToast(data.mensagem || "Erro ao processar gasto.", "danger");
+                statusText.textContent = "Erro ao registrar";
+                statusHint.textContent = "Tente falar novamente ou clique no botão";
             }
         } catch (err) {
-            showToast("Erro na comunicação com o servidor.", "danger");
+            showToast("Erro de comunicação com o servidor.", "danger");
             console.error(err);
         } finally {
+            isProcessing = false;
             processBtn.disabled = false;
             processBtn.style.opacity = '1';
             processBtnText.textContent = "Registrar Gasto";
         }
+    }
+
+    // Clique manual no botão Registrar Gasto
+    processBtn.addEventListener('click', () => {
+        const text = transcriptBox.innerText.trim();
+        if (!text) {
+            showToast("Fale ou digite um gasto antes de registrar!", "danger");
+            return;
+        }
+        enviarGastoParaServidor(text);
     });
 
     function exibirResultadoGemini(dados, statusPlanilha) {
@@ -294,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderizarHistorico(itens) {
         if (!itens || itens.length === 0) {
-            historyList.innerHTML = `<div class="empty-state">Nenhum gasto registrado nesta sessão. Diga algo e clique em "Registrar Gasto".</div>`;
+            historyList.innerHTML = `<div class="empty-state">Nenhum gasto registrado nesta sessão. Diga algo no microfone para salvar automaticamente.</div>`;
             return;
         }
 

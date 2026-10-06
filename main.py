@@ -49,8 +49,9 @@ Texto transcrito: "{texto_transcrito}"
 
 Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adicionais) com os seguintes campos:
 {{
-  "descricao": "Nome curto do que foi comprado ou gasto (ex: Almoço, Café, Abastecimento)",
+  "tipo": "Despesa ou Receita (padrão é Despesa caso seja compra/gasto)",
   "categoria": "Categoria apropriada (ex: Alimentação, Transporte, Moradia, Saúde, Lazer, Educação, Contas, Outros)",
+  "descricao": "Nome curto do que foi comprado ou gasto (ex: Almoço, Café, Abastecimento)",
   "valor": 0.00,
   "forma_pagamento": "Forma de pagamento se mencionada (ex: Cartão de Crédito, Cartão de Débito, Pix, Dinheiro, ou Não informada)",
   "observacao": "Detalhe adicional relevante se houver, ou string vazia",
