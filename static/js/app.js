@@ -26,7 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Estado interno
     let isListening = false;
     let shouldStayListening = false;
-    let finalTranscript = '';
+    let baseTranscript = '';    // Texto acumulado antes da sessão atual
+    let lastFullFinal = '';     // Último texto final consolidado
     let recognition = null;
 
     // 1. Checagem de compatibilidade da Web Speech API
@@ -59,36 +60,47 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         recognition.onresult = (event) => {
-            let interimTranscript = '';
+            let sessionFinal = '';
+            let sessionInterim = '';
 
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                const transcriptPiece = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    finalTranscript += (finalTranscript.length > 0 && !finalTranscript.endsWith(' ') ? ' ' : '') + transcriptPiece.trim();
+            // Itera por todos os resultados da sessão atual
+            for (let i = 0; i < event.results.length; i++) {
+                const result = event.results[i];
+                const text = result[0].transcript;
+
+                if (result.isFinal) {
+                    sessionFinal += text;
                 } else {
-                    interimTranscript += transcriptPiece;
+                    sessionInterim += text;
                 }
             }
 
-            renderTranscript(interimTranscript);
-            updateCounters();
+            // Concatena o texto base prévio com o que foi finalizado nesta sessão
+            let fullFinal = baseTranscript;
+            const trimmedFinal = sessionFinal.trim();
+            if (trimmedFinal) {
+                fullFinal = (fullFinal ? fullFinal + ' ' : '') + trimmedFinal;
+            }
+
+            renderTranscript(fullFinal, sessionInterim.trim());
         };
 
         recognition.onerror = (event) => {
-            console.warn("Erro no reconhecimento de voz:", event.error);
+            console.warn("Aviso no reconhecimento de voz:", event.error);
             if (event.error === 'not-allowed') {
                 showToast("Permissão de microfone negada no navegador.", "danger");
                 stopRecognition();
             } else if (event.error === 'no-speech') {
-                // Silêncio detectado; em modo contínuo apenas ignora
+                // Silêncio temporário detectado, não interrompe
             } else {
-                showToast(`Aviso: ${event.error}`, "danger");
+                showToast(`Status: ${event.error}`, "danger");
             }
         };
 
         recognition.onend = () => {
-            // Se o usuário quer continuar ouvindo e não clicou em pausar explicitamente
+            // Se o usuário deseja manter ouvindo continuamente e não clicou para pausar
             if (shouldStayListening && continuousToggle.checked) {
+                baseTranscript = lastFullFinal; // consolida o texto da sessão anterior
                 try {
                     recognition.start();
                     return;
@@ -105,6 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Funções de Início / Parada
     function startRecognition() {
         try {
+            baseTranscript = transcriptBox.innerText.trim();
+            lastFullFinal = baseTranscript;
             recognition.lang = langSelect.value;
             recognition.continuous = continuousToggle.checked;
             shouldStayListening = true;
@@ -129,12 +143,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function stopRecognitionUI() {
         isListening = false;
         shouldStayListening = false;
+        baseTranscript = lastFullFinal;
         micCard.classList.remove('listening');
         micIcon.classList.remove('icon-hidden');
         micStopIcon.classList.add('icon-hidden');
         statusText.textContent = "Pronto para ouvir";
         statusHint.textContent = "Clique no microfone para voltar a falar";
-        renderTranscript('');
+        renderTranscript(lastFullFinal, '');
     }
 
     // Alternar gravação ao clicar no botão
@@ -160,26 +175,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 4. Renderização do texto no box
-    function renderTranscript(interim) {
-        let html = escapeHtml(finalTranscript);
-        if (interim) {
-            html += (html.length > 0 ? ' ' : '') + `<span class="interim-text">${escapeHtml(interim)}</span>`;
+    // 4. Renderização do texto no box sem duplicação
+    function renderTranscript(finalText, interimText) {
+        lastFullFinal = finalText;
+
+        let html = escapeHtml(finalText);
+        if (interimText) {
+            html += (html.length > 0 ? ' ' : '') + `<span class="interim-text">${escapeHtml(interimText)}</span>`;
         }
+
         transcriptBox.innerHTML = html;
         transcriptBox.scrollTop = transcriptBox.scrollHeight;
+        updateCounters();
     }
 
-    // Se o usuário digitar manualmente na caixa
+    // Se o usuário editar manualmente na caixa
     transcriptBox.addEventListener('input', () => {
-        finalTranscript = transcriptBox.innerText.trim();
+        baseTranscript = transcriptBox.innerText.trim();
+        lastFullFinal = baseTranscript;
         updateCounters();
     });
 
     function updateCounters() {
         const text = transcriptBox.innerText.trim();
         const chars = text.length;
-        const words = text ? text.split(/\s+/).length : 0;
+        const words = text ? text.split(/\s+/).filter(w => w.length > 0).length : 0;
         charCount.textContent = `${chars} caracteres • ${words} palavras`;
     }
 
@@ -199,7 +219,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     clearBtn.addEventListener('click', () => {
-        finalTranscript = '';
+        baseTranscript = '';
+        lastFullFinal = '';
         transcriptBox.innerHTML = '';
         updateCounters();
         showToast("Caixa de texto limpa.", "success");
