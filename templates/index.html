@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transcritor de Voz em Tempo Real | Flask</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="ambient-glow"></div>
+    <main class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="badge">
+                <span class="badge-dot"></span>
+                <span>Web Speech API + Flask</span>
+            </div>
+            <h1>Transcritor de Voz</h1>
+            <p class="subtitle">Fale o que desejar. Seu navegador transcreve em tempo real e o Flask processa o resultado.</p>
+        </header>
+
+        <!-- Seção do Microfone -->
+        <section class="mic-card" aria-label="Controle de Gravação">
+            <div class="mic-wrapper">
+                <div class="sound-wave-rings" id="waveRings">
+                    <span class="ring ring-1"></span>
+                    <span class="ring ring-2"></span>
+                    <span class="ring ring-3"></span>
+                </div>
+                <button id="micBtn" class="mic-button" aria-label="Ativar ou desativar microfone" title="Clique para começar a falar">
+                    <!-- Ícone Microfone Padrão -->
+                    <svg id="micIcon" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
+                    <!-- Ícone Stop / Gravação Ativa -->
+                    <svg id="micStopIcon" class="icon icon-hidden" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Status do Reconhecimento -->
+            <div class="status-indicator">
+                <div class="status-pill" id="statusPill">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Pronto para ouvir</span>
+                </div>
+                <span class="hint" id="statusHint">Clique no microfone acima e comece a falar</span>
+            </div>
+
+            <!-- Opções rápidas -->
+            <div class="controls-bar">
+                <div class="control-group">
+                    <label for="langSelect">Idioma:</label>
+                    <select id="langSelect" class="styled-select">
+                        <option value="pt-BR" selected>🇧🇷 Português (Brasil)</option>
+                        <option value="en-US">🇺🇸 Inglês (EUA)</option>
+                        <option value="es-ES">🇪🇸 Espanhol</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="continuousToggle" checked>
+                        <span>Manter ouvindo (Contínuo)</span>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- Caixa de Texto / Transcrição -->
+        <section class="transcript-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <svg class="mini-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>Texto Transcrito</span>
+                </div>
+                <div class="action-buttons">
+                    <button id="copyBtn" class="btn btn-secondary" title="Copiar texto para a área de transferência">
+                        <svg class="mini-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span>Copiar</span>
+                    </button>
+                    <button id="clearBtn" class="btn btn-secondary" title="Limpar caixa de texto">
+                        <svg class="mini-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18"></path>
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                        </svg>
+                        <span>Limpar</span>
+                    </button>
+                    <button id="saveBtn" class="btn btn-primary" title="Enviar texto para o Flask">
+                        <svg class="mini-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                            <polyline points="7 3 7 8 15 8"></polyline>
+                        </svg>
+                        <span>Salvar no Flask</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Área de texto editável com suporte a interim result -->
+            <div class="transcript-editor-container">
+                <div id="transcriptBox" class="transcript-box" contenteditable="true" placeholder="Sua voz transcrita aparecerá aqui em tempo real..."></div>
+            </div>
+
+            <div class="transcript-footer">
+                <span id="charCount">0 caracteres • 0 palavras</span>
+                <span class="live-tag" id="liveTag">● Ao vivo</span>
+            </div>
+        </section>
+
+        <!-- Histórico de Transcrições Salvas no Backend -->
+        <section class="history-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <svg class="mini-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Histórico Salvo no Servidor</span>
+                </div>
+                <button id="clearHistoryBtn" class="btn btn-text">Limpar Histórico</button>
+            </div>
+            <div id="historyList" class="history-list">
+                <div class="empty-state">Nenhuma transcrição salva ainda. Fale algo e clique em "Salvar no Flask".</div>
+            </div>
+        </section>
+
+        <!-- Notificação Toast -->
+        <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
