@@ -59,18 +59,18 @@ Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adic
 Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
 """
 
-    # Lista de modelos em ordem de prioridade para fallback automático contra erro 503 / sobrecarga
+    # Lista de modelos resilientes em ordem de prioridade para fallback automático
     modelo_configurado = os.getenv("GEMINI_MODEL", "").strip()
     candidatos_modelos = [
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-flash-latest",
-        "gemini-pro-latest"
+        "gemini-3-flash-preview",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-8b",
+        "gemini-flash-latest"
     ]
     if modelo_configurado and modelo_configurado not in candidatos_modelos:
         candidatos_modelos.insert(0, modelo_configurado)
     elif modelo_configurado:
-        # Move o configurado para o início da lista
         candidatos_modelos.remove(modelo_configurado)
         candidatos_modelos.insert(0, modelo_configurado)
 
