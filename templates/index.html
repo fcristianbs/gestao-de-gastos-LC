@@ -51,6 +51,11 @@
                     <span id="statusText">Pronto para ouvir</span>
                 </div>
                 <span class="hint" id="statusHint">Clique no microfone acima e fale a sua despesa</span>
+                <!-- Indicador de Envio em Segundo Plano (Fila Assíncrona) -->
+                <div id="bgProcessingIndicator" class="bg-processing-pill hidden">
+                    <span class="spinner-mini"></span>
+                    <span id="bgProcessingText">Processando envio em segundo plano...</span>
+                </div>
             </div>
 
             <!-- Idioma -->
@@ -146,6 +151,6 @@
         <div id="toast" class="toast" role="alert" aria-live="polite"></div>
     </main>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=2.3"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=2.4"></script>
 </body>
 </html>

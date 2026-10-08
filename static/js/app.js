@@ -1,6 +1,6 @@
 // ==========================================================================
 // Gestão de Gastos LC - Transcrição de Voz + Gemini + Google Sheets
-// Envio 100% Automático ao terminar de falar (Hands-Free)
+// Processamento Assíncrono Não-Bloqueante (Microfone Liberado Instantaneamente)
 // ==========================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusText = document.getElementById('statusText');
     const statusHint = document.getElementById('statusHint');
     const langSelect = document.getElementById('langSelect');
+
+    const bgProcessingIndicator = document.getElementById('bgProcessingIndicator');
+    const bgProcessingText = document.getElementById('bgProcessingText');
 
     const transcriptBox = document.getElementById('transcriptBox');
     const charCount = document.getElementById('charCount');
@@ -32,10 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Estado interno
     let isListening = false;
-    let isProcessing = false;
     let baseText = '';          // Texto existente na caixa antes da fala atual
     let sessionFinalText = '';  // Texto definitivo reconhecido durante esta sessão
     let recognition = null;
+    let filaEnviosAtivos = 0;   // Contador de envios assíncronos em segundo plano
 
     // 1. Verificação de Suporte à Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -65,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
             micIcon.classList.add('icon-hidden');
             micStopIcon.classList.remove('icon-hidden');
             statusText.textContent = "Ouvindo você...";
-            statusHint.textContent = "Diga o gasto. Ao silenciar, ele envia sozinho!";
+            statusHint.textContent = "Fale o gasto. Ao silenciar, ele envia sozinho em segundo plano!";
         };
 
         rec.onresult = (event) => {
@@ -101,16 +104,16 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         rec.onend = () => {
-            // Quando a pessoa termina de falar (silêncio), para e envia automaticamente!
+            // Quando a pessoa termina de falar (silêncio), para e despacha em segundo plano!
             stopListening(true);
         };
 
         return rec;
     }
 
-    // 3. Funções de Início e Parada do Microfone
+    // 3. Funções de Início e Parada do Microfone (NUNCA BLOQUEANTES)
     function startListening() {
-        if (isListening || isProcessing) return;
+        if (isListening) return;
 
         baseText = transcriptBox.innerText.trim();
         sessionFinalText = '';
@@ -131,13 +134,14 @@ document.addEventListener('DOMContentLoaded', () => {
         micCard.classList.remove('listening');
         micIcon.classList.remove('icon-hidden');
         micStopIcon.classList.add('icon-hidden');
-        statusText.textContent = "Pronto para ouvir";
-        statusHint.textContent = "Clique no microfone para falar novamente";
 
-        const finalText = combineTexts(baseText, sessionFinalText);
-        baseText = finalText;
+        // Captura o texto definitivo desta fala
+        const textoCapturado = combineTexts(baseText, sessionFinalText).trim();
+
+        // Limpa IMEDIATAMENTE a caixa e os estados para liberar o microfone instantaneamente!
+        baseText = '';
         sessionFinalText = '';
-        renderBox(finalText, '');
+        renderBox('', '');
 
         if (recognition) {
             try {
@@ -146,11 +150,13 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition = null;
         }
 
-        // Se terminou com texto capturado, envia AUTOMATICAMENTE para a planilha!
-        if (autoSend && finalText && finalText.length >= 3) {
-            statusText.textContent = "Enviando à planilha...";
-            statusHint.textContent = "Estruturando com Gemini e salvando...";
-            enviarGastoParaServidor(finalText);
+        // Feedback imediato: Microfone 100% livre para a próxima inclusão
+        statusText.textContent = "Pronto para ouvir";
+        statusHint.textContent = "Microfone liberado! Fale outro gasto quando quiser.";
+
+        // Despacha o processamento em segundo plano sem bloquear o microfone!
+        if (autoSend && textoCapturado && textoCapturado.length >= 3) {
+            enviarGastoEmSegundoPlano(textoCapturado);
         }
     }
 
@@ -175,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Clique no microfone
     micBtn.addEventListener('click', () => {
         if (isListening) {
-            stopListening(true); // Se o usuário clicar para parar, também envia automaticamente
+            stopListening(true); // Se clicar para parar, também processa em segundo plano e libera
         } else {
             startListening();
         }
@@ -222,16 +228,24 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast("Caixa limpa.", "success");
     });
 
-    // 5. Função de Envio (Automática ou por clique)
-    async function enviarGastoParaServidor(text) {
-        if (!text || isProcessing) return;
+    // 5. Envio Assíncrono em Segundo Plano (Fila Não-Bloqueante)
+    function atualizarIndicadorFila() {
+        if (!bgProcessingIndicator) return;
+        if (filaEnviosAtivos > 0) {
+            bgProcessingIndicator.classList.remove('hidden');
+            bgProcessingText.textContent = `Processando e enviando ${filaEnviosAtivos} registro(s) em segundo plano...`;
+        } else {
+            bgProcessingIndicator.classList.add('hidden');
+        }
+    }
+
+    async function enviarGastoEmSegundoPlano(text) {
+        if (!text) return;
+
+        filaEnviosAtivos++;
+        atualizarIndicadorFila();
 
         try {
-            isProcessing = true;
-            processBtn.disabled = true;
-            processBtn.style.opacity = '0.7';
-            processBtnText.textContent = "Salvando com IA...";
-
             const response = await fetch('/api/processar-gasto', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -245,28 +259,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast(`✓ ${qtd} gasto(s) salvo(s) na planilha!`, "success");
                 exibirResultadoGemini(data.itens || [], data.valor_total || 0, data.status_planilha);
                 carregarHistorico();
-
-                // Limpa a caixa para o próximo registro
-                baseText = '';
-                sessionFinalText = '';
-                transcriptBox.innerHTML = '';
-                updateCounters();
-
-                statusText.textContent = "Gasto(s) registrado(s)!";
-                statusHint.textContent = "Clique no microfone para a próxima fala";
             } else {
-                showToast(data.mensagem || "Erro ao processar gasto.", "danger");
-                statusText.textContent = "Erro ao registrar";
-                statusHint.textContent = "Tente falar novamente ou clique no botão";
+                showToast(data.mensagem || "Erro ao processar gasto em segundo plano.", "danger");
             }
         } catch (err) {
-            showToast("Erro de comunicação com o servidor.", "danger");
+            showToast("Falha na comunicação ao salvar gasto.", "danger");
             console.error(err);
         } finally {
-            isProcessing = false;
-            processBtn.disabled = false;
-            processBtn.style.opacity = '1';
-            processBtnText.textContent = "Registrar Gasto";
+            filaEnviosAtivos = Math.max(0, filaEnviosAtivos - 1);
+            atualizarIndicadorFila();
         }
     }
 
@@ -277,7 +278,12 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast("Fale ou digite um gasto antes de registrar!", "danger");
             return;
         }
-        enviarGastoParaServidor(text);
+        // Limpa a caixa imediatamente e envia em segundo plano
+        baseText = '';
+        sessionFinalText = '';
+        transcriptBox.innerHTML = '';
+        updateCounters();
+        enviarGastoEmSegundoPlano(text);
     });
 
     function formatMoeda(val) {
