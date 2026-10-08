@@ -155,7 +155,23 @@ document.addEventListener('DOMContentLoaded', () => {
         statusHint.textContent = "Microfone liberado! Fale outro gasto quando quiser.";
 
         // Despacha o processamento em segundo plano sem bloquear o microfone!
-        if (autoSend && textoCapturado && textoCapturado.length >= 3) {
+        if (autoSend && textoCapturado && textoCapturado.length >= 2) {
+            // Checagem rápida local: se o usuário falou apenas uma ordem direta de cancelamento
+            const termoLimpo = textoCapturado.toLowerCase().replace(/[.,!?;:]/g, '').trim();
+            const termosCancelamentoDireto = [
+                'cancela', 'cancelar', 'cancela isso', 'cancelar isso',
+                'esquece', 'esquece isso', 'descarta', 'descartar',
+                'não grava', 'nao grava', 'não salva', 'nao salva',
+                'apaga', 'apagar', 'deixa pra lá', 'deixa pra la'
+            ];
+
+            if (termosCancelamentoDireto.includes(termoLimpo)) {
+                showToast("🚫 Gravação cancelada por comando de voz!", "danger");
+                statusText.textContent = "Cancelado!";
+                statusHint.textContent = "Nada foi gravado. Fale outro gasto quando quiser.";
+                return;
+            }
+
             enviarGastoEmSegundoPlano(textoCapturado);
         }
     }
@@ -253,6 +269,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const data = await response.json();
+
+            // Se o Gemini detectou comando de cancelamento contextual na frase
+            if (data.cancelado) {
+                showToast(`🚫 ${data.mensagem || 'Envio cancelado por comando de voz!'}`, "danger");
+                statusText.textContent = "Cancelado!";
+                statusHint.textContent = data.motivo || "Nada foi gravado na planilha.";
+                return;
+            }
 
             if (data.sucesso) {
                 const qtd = data.quantidade || (data.itens ? data.itens.length : 1);

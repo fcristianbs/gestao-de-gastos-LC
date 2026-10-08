@@ -48,11 +48,15 @@ Você é um assistente financeiro inteligente. Analise a transcrição de áudio
 
 Texto transcrito: "{texto_transcrito}"
 
-ATENÇÃO: O usuário pode mencionar UM OU MÚLTIPLOS gastos na mesma frase (por exemplo: "Gastei 50 no almoço no débito e 20 no uber no cartão" ou "Comprei um remédio de 40 reais e paguei a conta de luz 150 no pix").
-Você DEVE separar cada gasto individualmente dentro da lista "itens".
+ATENÇÃO ÀS SEGUINTES REGRAS CRÍTICAS:
+1. CANCELAMENTO / DESISTÊNCIA: Se o usuário pedir para cancelar, anular, descartar ou desistir do registro (por exemplo: "cancela", "não grava isso", "esquece", "descarta", "gastei 50 no almoço... quer dizer, cancela", "ah deixa pra lá, cancela"), defina "cancelar": true, informe o "motivo_cancelamento" e retorne "itens": [].
+2. MÚLTIPLOS GASTOS: Se o usuário mencionar mais de um gasto na mesma frase, separe cada um na lista "itens".
+3. FORMA DE PAGAMENTO: Se dita no final valendo para todos (ex: "gastei 30 no almoço e 15 no café tudo no pix"), atribua a ambos.
 
 Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adicionais) com a seguinte estrutura:
 {{
+  "cancelar": false,
+  "motivo_cancelamento": "",
   "itens": [
     {{
       "tipo": "Despesa ou Receita (padrão é Despesa caso seja compra/gasto)",
@@ -64,12 +68,7 @@ Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adic
     }}
   ]
 }}
-
-Regras importantes:
-1. O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
-2. Se houver mais de um gasto na frase, crie um objeto para cada um dentro de "itens".
-3. Se a forma de pagamento for dita no final valendo para todos (ex: "gastei 30 no almoço e 15 no café tudo no pix"), atribua "Pix" a ambos.
-4. Se houver apenas um gasto, retorne a lista "itens" com 1 elemento.
+Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
 """
 
     # Lista de modelos resilientes em ordem de prioridade para fallback automático
@@ -114,14 +113,27 @@ Regras importantes:
                     print(f"[Gemini] Sucesso com o modelo: {mod}")
                     dados_parseados = json.loads(raw_text)
 
-                    # Normaliza para lista de itens
-                    if isinstance(dados_parseados, list):
-                        return dados_parseados
-                    elif isinstance(dados_parseados, dict) and "itens" in dados_parseados and isinstance(dados_parseados["itens"], list):
-                        return dados_parseados["itens"]
-                    elif isinstance(dados_parseados, dict):
-                        return [dados_parseados]
-                    return []
+                    # Verifica se o Gemini detectou cancelamento
+                    cancelado = False
+                    motivo = ""
+                    itens = []
+
+                    if isinstance(dados_parseados, dict):
+                        cancelado = bool(dados_parseados.get("cancelar", False))
+                        motivo = dados_parseados.get("motivo_cancelamento", "")
+                        if not cancelado:
+                            if "itens" in dados_parseados and isinstance(dados_parseados["itens"], list):
+                                itens = dados_parseados["itens"]
+                            elif "descricao" in dados_parseados or "valor" in dados_parseados:
+                                itens = [dados_parseados]
+                    elif isinstance(dados_parseados, list):
+                        itens = dados_parseados
+
+                    return {
+                        "cancelado": cancelado,
+                        "motivo": motivo,
+                        "itens": itens
+                    }
                 else:
                     erros_acumulados.append(f"{mod}: Nenhuma resposta gerada")
             else:
@@ -164,9 +176,19 @@ def processar_gasto():
         }), 400
 
     try:
-        # 1. Estruturação de um ou múltiplos gastos com Gemini
-        itens = extrair_dados_com_gemini(texto, gemini_key)
-        
+        # 1. Estruturação com Gemini (analisa intenção e cancelamento)
+        resultado_gemini = extrair_dados_com_gemini(texto, gemini_key)
+
+        # Se o usuário ordenou cancelamento por voz, interrompe o envio imediatamente!
+        if resultado_gemini.get("cancelado"):
+            return jsonify({
+                "sucesso": True,
+                "cancelado": True,
+                "mensagem": "Envio cancelado por comando de voz! Nada foi gravado na planilha.",
+                "motivo": resultado_gemini.get("motivo", "Desistência identificada na fala")
+            })
+
+        itens = resultado_gemini.get("itens", [])
         if not itens:
             return jsonify({"sucesso": False, "mensagem": "Nenhum gasto identificado na frase."}), 400
 
