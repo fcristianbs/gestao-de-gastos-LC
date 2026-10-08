@@ -40,6 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let recognition = null;
     let filaEnviosAtivos = 0;   // Contador de envios assíncronos em segundo plano
 
+    // Intervalo de silêncio ajustado para permitir pausas naturais e respiração (2.5 segundos)
+    const INTERVALO_SILENCIO_MS = 2500;
+    let timerSilencio = null;
+
     // 1. Verificação de Suporte à Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -56,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Criação do Reconhecedor
     function createRecognition() {
         const rec = new SpeechRecognition();
-        rec.continuous = false; // Garante que o fim da fala dispare onend suavemente
+        rec.continuous = true; // Permite pausas naturais sem o navegador cortar após 800ms
         rec.interimResults = true;
         rec.lang = langSelect.value;
         rec.maxAlternatives = 1;
@@ -68,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
             micIcon.classList.add('icon-hidden');
             micStopIcon.classList.remove('icon-hidden');
             statusText.textContent = "Ouvindo você...";
-            statusHint.textContent = "Fale o gasto. Ao silenciar, ele envia sozinho em segundo plano!";
+            statusHint.textContent = "Fale naturalmente. Você pode pausar para pensar sem pressa!";
         };
 
         rec.onresult = (event) => {
@@ -91,6 +95,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // Monta o texto completo sem duplicação
             const consolidated = combineTexts(baseText, sessionFinalText);
             renderBox(consolidated, currentInterim);
+
+            // Reinicia o timer de silêncio a cada nova palavra detectada
+            clearTimeout(timerSilencio);
+            if (consolidated.length >= 2) {
+                statusHint.textContent = "Pausa detectada... aguardando término da frase...";
+                timerSilencio = setTimeout(() => {
+                    if (isListening) {
+                        stopListening(true);
+                    }
+                }, INTERVALO_SILENCIO_MS);
+            }
         };
 
         rec.onerror = (event) => {
@@ -104,8 +119,10 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         rec.onend = () => {
-            // Quando a pessoa termina de falar (silêncio), para e despacha em segundo plano!
-            stopListening(true);
+            clearTimeout(timerSilencio);
+            if (isListening) {
+                stopListening(true);
+            }
         };
 
         return rec;
@@ -128,6 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopListening(autoSend = true) {
+        clearTimeout(timerSilencio);
         if (!isListening) return;
 
         isListening = false;
