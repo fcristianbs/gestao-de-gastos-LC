@@ -1,5 +1,6 @@
 /**
  * Google Apps Script - Webhook para Registro de Gastos Financeiros
+ * Suporta registro individual ou múltiplos gastos em uma única requisição.
  * 
  * Layout da Planilha:
  * Coluna A: Data
@@ -44,42 +45,58 @@ function doPost(e) {
       headerRange.setFontColor("#FFFFFF");
     }
 
-    // Extrai os campos formatados pelo Gemini
-    var dataHora = data.data || Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy HH:mm:ss");
-    var tipo = data.tipo || "Despesa";
-    var categoria = data.categoria || "Geral";
-    var descricao = data.descricao || "Não informada";
-    var valor = parseFloat(data.valor) || 0;
-    
-    // Junta forma de pagamento e observações no campo Observações se não houver coluna exclusiva
-    var formaPagamento = data.forma_pagamento ? "Pagamento: " + data.forma_pagamento : "";
-    var obsTexto = data.observacao || "";
-    var observacoes = [formaPagamento, obsTexto].filter(function(x) { return x.length > 0; }).join(" | ");
-    
-    var promptOriginal = data.prompt_original || "";
+    // Normaliza a lista de itens (suporta tanto um único item quanto { "itens": [...] } ou array direto)
+    var listaItens = [];
+    if (Array.isArray(data)) {
+      listaItens = data;
+    } else if (data.itens && Array.isArray(data.itens)) {
+      listaItens = data.itens;
+    } else {
+      listaItens = [data];
+    }
 
-    // Adiciona exatamente na ordem das colunas da planilha:
-    // A: Data | B: Tipo | C: Categoria | D: Descrição | E: Valor | F: Observações | G: Prompt
-    sheet.appendRow([
-      dataHora,
-      tipo,
-      categoria,
-      descricao,
-      valor,
-      observacoes,
-      promptOriginal
-    ]);
+    var linhasAdicionadas = [];
 
-    // Formata a coluna E (coluna 5) como moeda R$
-    var lastRow = sheet.getLastRow();
-    sheet.getRange(lastRow, 5).setNumberFormat('R$ #,##0.00');
+    for (var i = 0; i < listaItens.length; i++) {
+      var item = listaItens[i];
+
+      var dataHora = item.data || Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy HH:mm:ss");
+      var tipo = item.tipo || "Despesa";
+      var categoria = item.categoria || "Geral";
+      var descricao = item.descricao || "Não informada";
+      var valor = parseFloat(item.valor) || 0;
+      
+      var formaPagamento = item.forma_pagamento ? "Pagamento: " + item.forma_pagamento : "";
+      var obsTexto = item.observacao || "";
+      var observacoes = [formaPagamento, obsTexto].filter(function(x) { return x.length > 0; }).join(" | ");
+      
+      var promptOriginal = item.prompt_original || (data.prompt_original || "");
+
+      // Adiciona na ordem exata das colunas:
+      // A: Data | B: Tipo | C: Categoria | D: Descrição | E: Valor | F: Observações | G: Prompt
+      sheet.appendRow([
+        dataHora,
+        tipo,
+        categoria,
+        descricao,
+        valor,
+        observacoes,
+        promptOriginal
+      ]);
+
+      // Formata a coluna E (coluna 5) como moeda R$
+      var lastRow = sheet.getLastRow();
+      sheet.getRange(lastRow, 5).setNumberFormat('R$ #,##0.00');
+      linhasAdicionadas.push(lastRow);
+    }
 
     lock.releaseLock();
 
     return ContentService.createTextOutput(JSON.stringify({
       "sucesso": true,
-      "mensagem": "Gasto registrado com sucesso na planilha!",
-      "linha": lastRow
+      "mensagem": listaItens.length + (listaItens.length > 1 ? " gastos registrados na planilha!" : " gasto registrado na planilha!"),
+      "quantidade": listaItens.length,
+      "linhas": linhasAdicionadas
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
@@ -93,6 +110,6 @@ function doPost(e) {
 function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
     "status": "online",
-    "mensagem": "Webhook funcionando!"
+    "mensagem": "Webhook funcionando com suporte a múltiplos gastos!"
   })).setMimeType(ContentService.MimeType.JSON);
 }

@@ -111,32 +111,17 @@
             </div>
         </section>
 
-        <!-- Card de Resultado do Gemini (quando processado) -->
+        <!-- Card de Resultado do Gemini (suporta 1 ou múltiplos gastos) -->
         <section id="resultCard" class="result-card hidden">
             <div class="result-header">
                 <div class="result-title">
                     <span class="ai-sparkle">✨</span>
-                    <span>Estruturado pelo Gemini</span>
+                    <span id="resTitle">Estruturado pelo Gemini</span>
                 </div>
                 <span id="sheetsStatusBadge" class="sheets-badge">Planilha: Conectando...</span>
             </div>
-            <div class="result-grid">
-                <div class="result-item">
-                    <span class="result-label">Valor</span>
-                    <span id="resValor" class="result-value valor-highlight">R$ 0,00</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Descrição</span>
-                    <span id="resDescricao" class="result-value">-</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Categoria</span>
-                    <span id="resCategoria" class="result-value">-</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Forma de Pagamento</span>
-                    <span id="resPagamento" class="result-value">-</span>
-                </div>
+            <div id="resultItemsContainer" class="result-items-container">
+                <!-- Itens gerados dinamicamente via JS -->
             </div>
         </section>
 
@@ -161,6 +146,6 @@
         <div id="toast" class="toast" role="alert" aria-live="polite"></div>
     </main>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=2.2"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=2.3"></script>
 </body>
 </html>

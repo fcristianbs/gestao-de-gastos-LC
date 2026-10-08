@@ -40,24 +40,36 @@ def listar_transcricoes():
 
 def extrair_dados_com_gemini(texto_transcrito, api_key):
     """
-    Envia a transcrição para a API do Gemini e obtém os dados financeiros estruturados em JSON.
+    Envia a transcrição para a API do Gemini e obtém uma lista de gastos estruturados em JSON.
+    Permite identificar múltiplos gastos/receitas em uma única fala.
     """
     prompt = f"""
-Você é um assistente financeiro inteligente. Analise a seguinte transcrição de áudio de um gasto/despesa e extraia as informações estruturadas.
+Você é um assistente financeiro inteligente. Analise a transcrição de áudio a seguir e extraia todas as despesas ou receitas mencionadas.
 
 Texto transcrito: "{texto_transcrito}"
 
-Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adicionais) com os seguintes campos:
+ATENÇÃO: O usuário pode mencionar UM OU MÚLTIPLOS gastos na mesma frase (por exemplo: "Gastei 50 no almoço no débito e 20 no uber no cartão" ou "Comprei um remédio de 40 reais e paguei a conta de luz 150 no pix").
+Você DEVE separar cada gasto individualmente dentro da lista "itens".
+
+Retorne APENAS um objeto JSON válido (sem tags markdown, sem explicações adicionais) com a seguinte estrutura:
 {{
-  "tipo": "Despesa ou Receita (padrão é Despesa caso seja compra/gasto)",
-  "categoria": "Categoria apropriada (ex: Alimentação, Transporte, Moradia, Saúde, Lazer, Educação, Contas, Outros)",
-  "descricao": "Nome curto do que foi comprado ou gasto (ex: Almoço, Café, Abastecimento)",
-  "valor": 0.00,
-  "forma_pagamento": "Forma de pagamento se mencionada (ex: Cartão de Crédito, Cartão de Débito, Pix, Dinheiro, ou Não informada)",
-  "observacao": "Detalhe adicional relevante se houver, ou string vazia",
-  "prompt_original": "{texto_transcrito}"
+  "itens": [
+    {{
+      "tipo": "Despesa ou Receita (padrão é Despesa caso seja compra/gasto)",
+      "categoria": "Categoria apropriada (ex: Alimentação, Transporte, Moradia, Saúde, Lazer, Educação, Contas, Outros)",
+      "descricao": "Nome curto do que foi comprado ou gasto (ex: Almoço, Uber, Farmácia, Conta de Luz)",
+      "valor": 0.00,
+      "forma_pagamento": "Forma de pagamento se mencionada para este item ou no contexto geral (ex: Cartão de Crédito, Cartão de Débito, Pix, Dinheiro, ou Não informada)",
+      "observacao": "Detalhe adicional relevante se houver, ou string vazia"
+    }}
+  ]
 }}
-Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
+
+Regras importantes:
+1. O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 12.50).
+2. Se houver mais de um gasto na frase, crie um objeto para cada um dentro de "itens".
+3. Se a forma de pagamento for dita no final valendo para todos (ex: "gastei 30 no almoço e 15 no café tudo no pix"), atribua "Pix" a ambos.
+4. Se houver apenas um gasto, retorne a lista "itens" com 1 elemento.
 """
 
     # Lista de modelos resilientes em ordem de prioridade para fallback automático
@@ -100,7 +112,16 @@ Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 1
                 if candidates:
                     raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
                     print(f"[Gemini] Sucesso com o modelo: {mod}")
-                    return json.loads(raw_text)
+                    dados_parseados = json.loads(raw_text)
+
+                    # Normaliza para lista de itens
+                    if isinstance(dados_parseados, list):
+                        return dados_parseados
+                    elif isinstance(dados_parseados, dict) and "itens" in dados_parseados and isinstance(dados_parseados["itens"], list):
+                        return dados_parseados["itens"]
+                    elif isinstance(dados_parseados, dict):
+                        return [dados_parseados]
+                    return []
                 else:
                     erros_acumulados.append(f"{mod}: Nenhuma resposta gerada")
             else:
@@ -116,13 +137,13 @@ Importante: O campo "valor" deve ser SEMPRE um número float puro (ex: 50.0 ou 1
     # Se todos falharem
     raise Exception(f"Todos os modelos do Gemini falharam: {'; '.join(erros_acumulados)}")
 
-def enviar_para_google_sheets(dados_gasto, webhook_url):
+def enviar_para_google_sheets(payload, webhook_url):
     """
-    Envia os dados estruturados para o Google Apps Script Webhook.
+    Envia a lista de dados estruturados para o Google Apps Script Webhook.
     """
     headers = {"Content-Type": "application/json"}
     # O Google Apps Script redireciona (302) para uma URL de execução; allow_redirects=True é essencial
-    resp = requests.post(webhook_url, json=dados_gasto, headers=headers, timeout=20, allow_redirects=True)
+    resp = requests.post(webhook_url, json=payload, headers=headers, timeout=20, allow_redirects=True)
     return resp
 
 @app.route("/api/processar-gasto", methods=["POST"])
@@ -143,15 +164,23 @@ def processar_gasto():
         }), 400
 
     try:
-        # 1. Estruturação com Gemini
-        dados_estruturados = extrair_dados_com_gemini(texto, gemini_key)
-        dados_estruturados["data"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        # 1. Estruturação de um ou múltiplos gastos com Gemini
+        itens = extrair_dados_com_gemini(texto, gemini_key)
+        
+        if not itens:
+            return jsonify({"sucesso": False, "mensagem": "Nenhum gasto identificado na frase."}), 400
 
-        # 2. Envio para o Google Sheets (se configurado)
+        data_agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        for item in itens:
+            item["data"] = data_agora
+            item["prompt_original"] = texto
+
+        # 2. Envio para o Google Sheets (suporta array de múltiplos itens)
         planilha_status = "não configurada"
         if webhook_url:
             try:
-                sheet_resp = enviar_para_google_sheets(dados_estruturados, webhook_url)
+                payload_sheets = {"itens": itens, "prompt_original": texto}
+                sheet_resp = enviar_para_google_sheets(payload_sheets, webhook_url)
                 try:
                     sheet_data = sheet_resp.json()
                     if sheet_data.get("sucesso"):
@@ -170,19 +199,24 @@ def processar_gasto():
                 planilha_status = f"erro na conexão com sheets: {str(e)}"
 
         # 3. Guarda no histórico da sessão
+        valor_total = sum(float(i.get("valor", 0)) for i in itens)
         item_historico = {
             "id": len(historico_transcricoes) + 1,
             "texto": texto,
-            "dados": dados_estruturados,
+            "itens": itens,
+            "valor_total": valor_total,
+            "quantidade": len(itens),
             "status_planilha": planilha_status,
-            "timestamp": dados_estruturados["data"]
+            "timestamp": data_agora
         }
         historico_transcricoes.insert(0, item_historico)
 
         return jsonify({
             "sucesso": True,
-            "mensagem": "Gasto processado com sucesso pelo Gemini!",
-            "dados": dados_estruturados,
+            "mensagem": f"{len(itens)} gasto(s) registrado(s) com sucesso!",
+            "itens": itens,
+            "quantidade": len(itens),
+            "valor_total": valor_total,
             "status_planilha": planilha_status
         })
 

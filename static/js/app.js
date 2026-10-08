@@ -22,10 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Card de Resultado Gemini
     const resultCard = document.getElementById('resultCard');
-    const resValor = document.getElementById('resValor');
-    const resDescricao = document.getElementById('resDescricao');
-    const resCategoria = document.getElementById('resCategoria');
-    const resPagamento = document.getElementById('resPagamento');
+    const resTitle = document.getElementById('resTitle');
+    const resultItemsContainer = document.getElementById('resultItemsContainer');
     const sheetsStatusBadge = document.getElementById('sheetsStatusBadge');
 
     const historyList = document.getElementById('historyList');
@@ -243,8 +241,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (data.sucesso) {
-                showToast("✓ Gasto salvo na planilha!", "success");
-                exibirResultadoGemini(data.dados, data.status_planilha);
+                const qtd = data.quantidade || (data.itens ? data.itens.length : 1);
+                showToast(`✓ ${qtd} gasto(s) salvo(s) na planilha!`, "success");
+                exibirResultadoGemini(data.itens || [], data.valor_total || 0, data.status_planilha);
                 carregarHistorico();
 
                 // Limpa a caixa para o próximo registro
@@ -253,8 +252,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 transcriptBox.innerHTML = '';
                 updateCounters();
 
-                statusText.textContent = "Gasto registrado!";
-                statusHint.textContent = "Clique no microfone para o próximo gasto";
+                statusText.textContent = "Gasto(s) registrado(s)!";
+                statusHint.textContent = "Clique no microfone para a próxima fala";
             } else {
                 showToast(data.mensagem || "Erro ao processar gasto.", "danger");
                 statusText.textContent = "Erro ao registrar";
@@ -281,18 +280,24 @@ document.addEventListener('DOMContentLoaded', () => {
         enviarGastoParaServidor(text);
     });
 
-    function exibirResultadoGemini(dados, statusPlanilha) {
-        if (!dados) return;
+    function formatMoeda(val) {
+        const num = parseFloat(val) || 0;
+        return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function exibirResultadoGemini(itens, valorTotal, statusPlanilha) {
+        if (!itens || itens.length === 0) return;
 
         resultCard.classList.remove('hidden');
 
-        // Formata valor monetário
-        const valorNum = parseFloat(dados.valor) || 0;
-        resValor.textContent = valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        resDescricao.textContent = dados.descricao || '-';
-        resCategoria.textContent = dados.categoria || '-';
-        resPagamento.textContent = dados.forma_pagamento || 'Não informada';
+        // Título dinâmico
+        if (itens.length > 1) {
+            resTitle.textContent = `${itens.length} gastos estruturados (Total: ${formatMoeda(valorTotal)})`;
+        } else {
+            resTitle.textContent = `1 gasto estruturado pelo Gemini`;
+        }
 
+        // Status da planilha
         if (statusPlanilha && statusPlanilha.includes("salvo")) {
             sheetsStatusBadge.textContent = "✓ Salvo no Google Sheets";
             sheetsStatusBadge.className = "sheets-badge";
@@ -300,6 +305,37 @@ document.addEventListener('DOMContentLoaded', () => {
             sheetsStatusBadge.textContent = statusPlanilha || "Planilha pendente";
             sheetsStatusBadge.className = "sheets-badge badge-error";
         }
+
+        // Renderiza cada item individualmente
+        resultItemsContainer.innerHTML = itens.map((item, idx) => {
+            return `
+            <div class="result-item-card">
+                <div class="result-item-top">
+                    <span class="result-badge-tipo">${escapeHtml(item.tipo || 'Despesa')} ${itens.length > 1 ? `#${idx + 1}` : ''}</span>
+                    <span class="valor-highlight">${formatMoeda(item.valor)}</span>
+                </div>
+                <div class="result-grid">
+                    <div class="result-item">
+                        <span class="result-label">Descrição</span>
+                        <span class="result-value">${escapeHtml(item.descricao || '-')}</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Categoria</span>
+                        <span class="result-value">${escapeHtml(item.categoria || '-')}</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Pagamento</span>
+                        <span class="result-value">${escapeHtml(item.forma_pagamento || 'Não informada')}</span>
+                    </div>
+                    ${item.observacao ? `
+                    <div class="result-item">
+                        <span class="result-label">Observação</span>
+                        <span class="result-value">${escapeHtml(item.observacao)}</span>
+                    </div>` : ''}
+                </div>
+            </div>
+            `;
+        }).join('');
 
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -317,28 +353,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function renderizarHistorico(itens) {
-        if (!itens || itens.length === 0) {
+    function renderizarHistorico(registros) {
+        if (!registros || registros.length === 0) {
             historyList.innerHTML = `<div class="empty-state">Nenhum gasto registrado nesta sessão. Diga algo no microfone para salvar automaticamente.</div>`;
             return;
         }
 
-        historyList.innerHTML = itens.map(item => {
-            const dados = item.dados || {};
-            const valor = dados.valor ? parseFloat(dados.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
+        historyList.innerHTML = registros.map(reg => {
+            const itens = reg.itens || (reg.dados ? [reg.dados] : []);
+            const total = reg.valor_total || (itens.length > 0 ? itens.reduce((acc, i) => acc + (parseFloat(i.valor) || 0), 0) : 0);
+
+            const itensHtml = itens.map(it => `
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; padding: 2px 0;">
+                    <span>• <strong>${escapeHtml(it.descricao || 'Item')}</strong> <em style="color: #94A3B8;">(${escapeHtml(it.categoria || 'Geral')})</em></span>
+                    <span style="color: #34D399; font-weight: 500;">${formatMoeda(it.valor)}</span>
+                </div>
+            `).join('');
 
             return `
             <div class="history-item">
-                <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                    <strong style="color: #F3F4F6;">${escapeHtml(dados.descricao || item.texto)}</strong>
-                    <span style="color: #34D399; font-weight: 600;">${valor}</span>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+                    <span style="font-size: 0.8rem; color: #A5B4FC; font-weight: 600;">
+                        ${itens.length} ${itens.length > 1 ? 'itens registrados' : 'item registrado'}
+                    </span>
+                    <strong style="color: #34D399; font-size: 1rem;">${formatMoeda(total)}</strong>
                 </div>
-                <div style="font-size: 0.8rem; color: #94A3B8;">
-                    <span>📁 ${escapeHtml(dados.categoria || 'Geral')}</span> • 
-                    <span>💳 ${escapeHtml(dados.forma_pagamento || '-')}</span>
+                <div style="background: rgba(0,0,0,0.2); padding: 6px 8px; border-radius: 6px; margin-bottom: 4px;">
+                    ${itensHtml}
                 </div>
-                <div style="font-size: 0.725rem; color: #64748B; margin-top: 2px;">
-                    <em>Prompt: "${escapeHtml(item.texto)}"</em> • ${escapeHtml(item.timestamp || '')}
+                <div style="font-size: 0.725rem; color: #64748B;">
+                    <em>Prompt: "${escapeHtml(reg.texto)}"</em> • ${escapeHtml(reg.timestamp || '')}
                 </div>
             </div>
             `;
